@@ -1,0 +1,711 @@
+---
+title: "Final_EHV1LogisticRegression_Dec4"
+author: "Julia Delaire - 0730478"
+date: "2024-12-04"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Part 1: Before testing a hypothesis, the data must be cleaned up and prepared for analysis**
+
+```{r}
+#Load the required packages
+library(dplyr)
+library(readr)
+library(tidymodels)
+require(readr)
+library(glmnet)
+library(car)
+library(caret)
+library(ggplot2)
+library(logistf)
+```
+
+```{r}
+# Import and view the data set, check that the data types are correct
+RegressionData <- read.csv('MultiLogRegTruePosEverInfected.csv', header = T, 
+                           na.strings=c(""))
+glimpse(RegressionData) #View the data types
+```
+
+``` {r}
+# Make any necessary changes to data types 
+RegressionData <- RegressionData %>%
+  mutate(HorseID = as.numeric(HorseID))
+
+RegressionData <- RegressionData %>%
+  mutate(Age = as.numeric(Age))
+
+RegressionData <- RegressionData %>%
+  mutate(Sex = as.character(Sex))
+
+RegressionData <- RegressionData %>%
+  mutate(Sex2 = as.character(Sex2))
+
+RegressionData <- RegressionData %>%
+  mutate(BarnSection = as.character(BarnSection))
+
+RegressionData <- RegressionData %>%
+  mutate(Trainer = as.factor(Trainer))
+
+RegressionData <- RegressionData %>%
+  mutate(Vet = as.factor(Vet))
+
+RegressionData <- RegressionData %>%
+  mutate(Vax.60days = as.factor(Vax.60days))
+
+RegressionData <- RegressionData %>%
+  mutate(EverInfected = as.factor(EverInfected))
+
+colnames(RegressionData)
+
+```
+
+``` {r}
+# Remove column 'X'
+data <- RegressionData %>%
+  dplyr::select(-X)
+```
+
+**Check for missing values**
+
+# Check for values that are NA
+sapply(data, function(x) sum(is.na(x)))
+DaysSinceVax and Vax.60days both have missing values - deactivated the code for this step because its not being included in this model
+
+#Transform categorical and logical variables into factors 
+#Factors have been ordered to account for appropriate reference value, these 
+#were determined through careful consideration of the number of samples 
+#belonging to each subgroup. Some aspects of the data set lack heterogeneity 
+#(age and sex) and the variance is not evenly distributed.
+``` {r}
+#Many of the variables are categorical or logical. To pass them through the 
+#logistic regression more smoothly, we will convert these to factors with levels 
+#that correspond to their labels.
+
+data$Sex <- factor(data$Sex, levels = c(0, 1, 2, 3, 4), 
+                   labels = c("colt", "filly", "gelding", "mare", "horse"))
+
+data$Sex2 <- factor(data$Sex2, levels = c(0, 1, 2), 
+                    labels = c("male", "female", "horse"))
+
+data$EverInfected <- factor(data$EverInfected, levels = c(0, 1), 
+                            labels = c("no", "yes"))
+
+data$Vax.60days <- factor(data$Vax.60days, levels = c(0, 1), 
+                          labels = c("no", "yes"))
+
+data$BarnSection <- factor(data$BarnSection, levels = c(1, 2, 3, 4), 
+                           labels = c("1", "2", "3", "4"))
+
+data$Trainer <- factor(data$Trainer, levels = c(1, 2, 3, 4, 5, 6), 
+                       labels = c("1", "2", "3", "4", "5", "6"))
+
+data$Vet <- factor(data$Vet, levels = c(1, 2, 3), labels = c("1", "2", "3"))
+```
+
+```{r}
+#Check to make sure the data are appearing as they should with the correct values
+head(data)
+```
+
+
+``` {r}
+# Now we check to make sure there are no missing values
+sapply(data, function(x) sum(is.na(x)))
+```
+
+
+# For simplicity as we are using Firth's logistic regression, we will deal with
+#missing values by dropping these values
+data <- data[!is.na(data$Vax.60days),]
+rownames(data) <- NULL
+
+
+
+# Now we check to make sure there are no longer any missing values
+sapply(data, function(x) sum(is.na(x)))
+
+
+**Part 2: Performing logistic regression**
+
+*Step 1: State your research question*
+Q: Are certain characteristics of horses related to the likelihood of developing and infection of EHV-1?
+Conceptual model: Ever infected = Age + Sex + DaysSinceVax + Barn Section + Trainer + Sex2 + Vet + Vax.60days
+
+Response variable = Ever Infected
+Explanatory variables = Age, Sex, DaysSinceVax, Barn Section, Trainer, Sex2, Vet, Vax.60days
+
+*Step 2: Explore the data*
+
+``` {r}
+#Summary will provide some statistical information, however since most of the 
+#variables are categorical, we can only look at summary statistics for 
+#DaysSinceVax and Age
+summary(data)
+```
+```{r}
+# Calculating mean, sd, se and IC for DaysSinceVax
+my_sumDaysSinceVax <- data %>%
+  group_by() %>%
+  summarise( 
+    n=n(),
+    mean=mean(DaysSinceVax),
+    sd=sd(DaysSinceVax)) %>%
+  mutate( se=sd/sqrt(n)) %>%
+  mutate( ic=se * qt((1-0.05)/2 + .5, n-1))
+my_sumDaysSinceVax
+```
+```{r}
+# Calculating mean, sd, se and IC for Age
+my_sumAge <- data %>%
+  group_by() %>%
+  summarise( 
+    n=n(),
+    mean=mean(Age),
+    sd=sd(Age)) %>%
+  mutate( se=sd/sqrt(n)) %>%
+  mutate( ic=se * qt((1-0.05)/2 + .5, n-1))
+my_sumAge
+```
+```{r}
+boxplot(data$Age~data$EverInfected,
+        ylab = "Age",
+        xlab = "PCR Test Result (no = Negative, yes = Positive)")
+```
+
+```{r}
+boxplot(data$DaysSinceVax~data$EverInfected,
+        ylab = "Days Since Vaccination",
+        xlab = "PCR Test Result (no = Negative, yes = Positive)")
+```
+EverInfected has very little variance with the exception of a few outlier. Both plots appear to show that the mean for both groups are approximately the same for age and vax status.
+
+``` {r}
+# Make barlot Sex2 
+ggplot(data, aes(x = Sex2, fill = EverInfected)) +
+  geom_bar(position = "dodge", width = 0.7) + #Adjust bar width - better spacing
+  labs(
+    x = "Sex2",  #X-axis title
+    y = "Number of Horses",  #Y-axis title
+    fill = "PCR Test Result"  #Legend title
+  ) +
+  scale_fill_manual(values = c("grey69", "grey34"), 
+                    labels = c("Negative", "Positive")) +  # Color scheme
+  theme_classic() +  #Use classic theme for a cleaner look
+  theme(
+    title = element_text(size = 16, face = "bold", hjust = 0.5),#Title styling
+    axis.title.x = element_text(size = 12, face = "bold"),#X-axis label styling
+    axis.title.y = element_text(size = 12, face = "bold"),#Y-axis label styling
+    axis.text = element_text(size = 10),  # Axis text size
+    legend.title = element_text(size = 12, face = "bold"),#Legend title styling
+    legend.text = element_text(size = 10),  # Legend text size
+    legend.position = c(0.6, 0.8),  #Position the legend inside the plot
+    panel.grid.major = element_blank(),  # Remove major gridlines
+    panel.grid.minor = element_blank(),  # Remove minor gridlines
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate X-axis labels 
+    plot.margin = margin(7, 7, 7, 7)  #Keep margins balanced
+  )
+```
+``` {r}
+# Make barlot Sex 
+ggplot(data, aes(x = Sex, fill = EverInfected)) +
+  geom_bar(position = "dodge", width = 0.7) + #Adjust bar width - better spacing
+  labs(
+    x = "Sex",  #X-axis title
+    y = "Number of Horses",  #Y-axis title
+    fill = "PCR Test Result"  #Legend title
+  ) +
+  scale_fill_manual(values = c("grey69", "grey34"), 
+                    labels = c("Negative", "Positive")) +  # Color scheme
+  theme_classic() +  #Use classic theme for a cleaner look
+  theme(
+    title = element_text(size = 16, face = "bold", hjust = 0.5),#Title styling
+    axis.title.x = element_text(size = 12, face = "bold"),#X-axis label styling
+    axis.title.y = element_text(size = 12, face = "bold"),#Y-axis label styling
+    axis.text = element_text(size = 10),  # Axis text size
+    legend.title = element_text(size = 12, face = "bold"),#Legend title styling
+    legend.text = element_text(size = 10),  # Legend text size
+    legend.position = c(0.7, 0.8),  #Position the legend inside the plot
+    panel.grid.major = element_blank(),  # Remove major gridlines
+    panel.grid.minor = element_blank(),  # Remove minor gridlines
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate X-axis labels 
+    plot.margin = margin(7, 7, 7, 7)  #Keep margins balanced
+  )
+```
+``` {r}
+# Make barplot of Trainer 
+ggplot(data, aes(x = Trainer, fill = EverInfected)) +
+  geom_bar(position = "dodge", width = 0.7) + #Adjust bar width - better spacing
+  labs(
+    x = "Trainer",  #X-axis title
+    y = "Number of Horses",  #Y-axis title
+    fill = "PCR Test Result"  #Legend title
+  ) +
+  scale_fill_manual(values = c("grey69", "grey34"),
+                    labels = c("Negative", "Positive")) +  #Color scheme
+  theme_classic() +  #Use classic theme for a cleaner look
+  theme(
+    title = element_text(size = 16, face = "bold", hjust = 0.5),  #Title styling
+    axis.title.x = element_text(size = 12, face = "bold"),#X-axis label styling
+    axis.title.y = element_text(size = 12, face = "bold"),#Y-axis label styling
+    axis.text = element_text(size = 10),  #Axis text size
+    legend.title = element_text(size = 12, face = "bold"),#Legend title styling
+    legend.text = element_text(size = 10),  #Legend text size
+    legend.position = c(0.6, 0.8),  #Position the legend inside the plot 
+    panel.grid.major = element_blank(),  #Remove major gridlines
+    panel.grid.minor = element_blank(),  #Remove minor gridlines
+    axis.text.x = element_text(angle = 45, hjust = 1),  #Rotate X-axis labels 
+    plot.margin = margin(10, 10, 10, 10)  #Adjust plot margin 
+  )
+```
+``` {r}
+# Make barplot of Vet 
+ggplot(data, aes(x = Vet, fill = EverInfected)) +
+  geom_bar(position = "dodge", width = 0.7) +#Adjust bar width - better spacing
+  labs(
+    x = "Vet",  
+    y = "Number of Horses",  
+    fill = "PCR Test Result"  
+  ) +
+  scale_fill_manual(values = c("grey69", "grey34"), 
+                    labels = c("Negative", "Positive")) +  #Color scheme
+  theme_classic() +  
+  theme(
+    title = element_text(size = 16, face = "bold", hjust = 0.5),  #Title styling
+    axis.title.x = element_text(size = 12, face = "bold"),#X-axis label styling
+    axis.title.y = element_text(size = 12, face = "bold"),#Y-axis label styling
+    axis.text = element_text(size = 10),  #Axis text size
+    legend.title = element_text(size = 12, face = "bold"),#Legend title styling
+    legend.text = element_text(size = 10),#Legend text size
+    legend.position = c(0.8, 0.7),  #Position the legend inside the plot 
+    panel.grid.major = element_blank(),  #Remove major gridlines
+    panel.grid.minor = element_blank(),  #Remove minor gridlines
+    axis.text.x = element_text(angle = 45, hjust = 1),  #Rotate X-axis labels
+    plot.margin = margin(10, 10, 10, 10)  #Adjust plot margin for better spacing
+  )
+```
+
+``` {r}
+# Make barplot of Barn Section 
+ggplot(data, aes(x = BarnSection, fill = EverInfected)) +
+  geom_bar(position = "dodge", width = 0.7) + #Adjust bar width - better spacing
+  labs(
+    x = "Barn Section",  #X-axis title
+    y = "Number of Horses",  #Y-axis title
+    fill = "PCR Test Result"  #Legend title
+  ) +
+  scale_fill_manual(values = c("grey69", "grey34"), 
+                    labels = c("Negetive", "Postive")) + #Color scheme
+  theme_classic() +  # Use classic theme for a cleaner look
+  theme(
+    title = element_text(size = 16, face = "bold", hjust = 0.5),#Title styling
+    axis.title.x = element_text(size = 12, face = "bold"),#X-axis label styling
+    axis.title.y = element_text(size = 12, face = "bold"),#Y-axis label styling
+    axis.text = element_text(size = 10),  #Axis text size
+    legend.title = element_text(size = 12, face = "bold"),#Legend title styling
+    legend.text = element_text(size = 10),  #Legend text size
+    legend.position = c(0.26, 0.8),  #Position the legend inside the plot
+    panel.grid.major = element_blank(),  #Remove major gridlines
+    panel.grid.minor = element_blank(),  #Remove minor gridlines
+    axis.text.x = element_text(angle = 45, hjust = 1),  #Rotate X-axis labels 
+    plot.margin = margin(10, 10, 10, 10)  #Adjust plot margin 
+  )
+```
+
+
+*Step Three: Check Assumptions*
+
+Assumption 1: Little to no multicollinearity of explanatory variables
+Test: Correlation matrix of predictors and Variance Inflation Factor (VIF)
+Conclusion: No significant multicollinearity, assumption met  
+
+Check Multicollinearity for the numeric variables
+``` {r}
+# Check the correlation matrix of predictors
+cor(data[, c("Age", "DaysSinceVax")])
+```
+The value is low so there is no multicollinearity between these variables
+
+Assumption 2: The data must be independent 
+Test: No test needed
+Conclusion: The data were collected by OMAFRA and analyzed by OVC with the utmost professionalism. However, the proximity of the horses to one another and potential issues with biosecurity may have resulted in some dependence (one horse testing positive could result in another horse testing positive simply due to proximity or interactions with the same staff). When investigating infectious diseases, it is difficult to avoid lack of independence due to the nature of transmission, therefore we will assume that the data is independent. 
+
+Assumption 3: Sufficient sample size
+Test: No test needed
+Conclusion: There should be at least 10 observations with the least frequent outcome for each explanatory variable. We have 35 never infected and 18 infected. Given that there are 5 predictor variables of interest, we will not have enough observations. This is a significant limitation as we only have enough observations to do logistic regression with one predictor variable.
+
+Assumption 4: No strongly influential outlier
+Test: Cook's distance test
+Conclusion: Assumption met, Cook's distance test did not indicate any outliers
+``` {r}
+#Use Cook's distance test to check for influential outliers
+model <- glm(EverInfected ~ BarnSection + Sex + Vet + Age + DaysSinceVax + Vax.60days + Stall + Trainer, data = data, 
+               family = "binomial")
+cooksd <- cooks.distance(model)
+
+influential.vals <- which(cooksd >= 4*mean(cooksd))
+data[influential.vals,]
+```
+There are no strongly influential outliers in this data set. 
+
+Assumption 5: Linearity of independent variables and log-odds
+Test: Box Tidwell (continuous variables) Likelihood Ratio Test (categorical variables) - Box Tidwell was not working (possible structure issue), manual check of Box Tidwell
+Conclusion: Assumption met - Log transformed predictors are not significant (p<a0.05) which indicates their interaction terms are non-significant. The relationship between the predictors and their log odds appears to be linear. They can be included in the model without transformation. 
+
+*continuous variables*
+
+boxtidwellmodel <- glm(EverInfected ~ Age + DaysSinceVax, data = data, 
+                       family = binomial)
+logodds <- boxtidwellmodel$linear.predictors 
+boxTidwell(logodds~data$Age)
+logodds <- boxtidwellmodel$linear.predictors 
+boxTidwell(logodds~data$DaysSinceVax)
+
+
+The p-values for the log transformed variables are not significant as p > a (0.05), thus their interaction terms are not significant. The relationship between the predictors and their log odds appears to be linear.
+
+*Step Four: Set H0 and H1*
+H0: B1 = 0 (is a flat line)
+HA: B1 not equal to 0 (is not a flat line)
+
+*Step Five: Set alpha*
+Alpha of 0.01 due to the fact that these results could influence decisions made in the managent of horses or outbreaks - requires a more stringent alpha.
+
+*Step 6: Calculate the test statistic*
+
+*Univariate Logistic Regression*
+
+``` {r}
+m1 <- logistf(EverInfected ~ DaysSinceVax, data = data, family = "binomial")
+summary(m1)
+```
+P > 0.02 - excluded from multivariate
+
+``` {r}
+m2 <- logistf(EverInfected ~ Vax.60days, data = data, family = "binomial")
+summary(m2)
+```
+P > 0.02 - excluded from multivariate
+
+
+**As DaysSinceVax and Vax.60days are not significant, we will revert to the orinigal full data set**
+
+``` {r}
+m3 <- logistf(EverInfected ~ Age, data = data, family = "binomial")
+summary(m3)
+```
+P > 0.2 - excluded from multivariate
+
+``` {r}
+m4 <- logistf(EverInfected ~ Sex, data = data, family = "binomial")
+summary(m4)
+```
+Gelding p < 0.2, overall model p < 0.2 - potential inclusion (Confounding w Sex2)
+
+``` {r}
+m5 <- logistf(EverInfected ~ Sex2, data = data, family = "binomial")
+summary(m5)
+```
+Female and overall model p <0.2 - potential inclusion (confounding with Sex, Sex has lower overall p value)
+
+``` {r}
+m6 <- logistf(EverInfected ~ Trainer, data = data, family = "binomial")
+summary(m6)
+```
+Trainer 5 p< 0.2 -wald overallp <0.2 but lrt p ~ 0.3 - could potentially include but likely confounding with BarnSection due to clustering of trainers by location
+
+``` {r}
+m7 <- logistf(EverInfected ~ Vet, data = data, family = "binomial")
+summary(m7)
+```
+P > 0.2 - excluded from multivariate
+
+``` {r}
+m8 <- logistf(EverInfected ~ DaysSinceVax, data = data, family = "binomial")
+summary(m8)
+```
+P > 0.02 - excluded from multivariate
+
+``` {r}
+m9 <- logistf(EverInfected ~ BarnSection, data = data, family = "binomial")
+summary(m9)
+```
+Barn section 2, overall p < 0.2 - inclusion 
+
+
+
+*Multivariate Logistic Regression*
+Of the variables analyzed in univariate regression, Sex, Sex2, Trainer, and Barn Sectionseem to have the highest significance and will be carried into the multivariate logistic regression.
+
+``` {r}
+m10 <- logistf(EverInfected ~ Sex + Sex2 + Trainer + BarnSection, data = data, 
+               family = "binomial")
+summary(m10)
+```
+LRT and Wald indicate good fit but the individual p values are questionable, likely due to confounding between Sex/Sex2 and BarnSection/Trainer
+
+``` {r}
+m11 <- logistf(EverInfected ~ Sex2 + Trainer + BarnSection, data = data, 
+               family = "binomial")
+summary(m11)
+```
+
+``` {r}
+m12 <- logistf(EverInfected ~ Sex + Trainer + BarnSection, data = data, 
+               family = "binomial")
+summary(m12)
+```
+Better fit than Sex2, but mostly indicating trainer and barnsection are not signif, not great fit
+
+``` {r}
+m13 <- logistf(EverInfected ~ Trainer + BarnSection, data = data, 
+               family = "binomial")
+summary(m13)
+```
+Not significant 
+
+``` {r}
+m14 <- logistf(EverInfected ~ Sex +  Trainer, data = data, 
+               family = "binomial")
+summary(m14)
+```
+Trainer and gelding are significant - but the overall fit p > 0.01
+
+``` {r}
+m15 <- logistf(EverInfected ~ Sex2 + Trainer, data = data, 
+               family = "binomial")
+summary(m15)
+```
+Nothing is significant
+
+``` {r}
+m16 <- logistf(EverInfected ~ Sex2 + BarnSection, data = data, 
+               family = "binomial")
+summary(m16)
+```
+Not significant
+
+``` {r}
+m17 <- logistf(EverInfected ~ Sex + BarnSection, data = data, 
+               family = "binomial")
+summary(m17)
+```
+Gelding and barn section 2 are both highly significant p <0.01, lrt indicates the model is highly significant p <0.01. Wald is p <0.05. This model is the best fit. 
+
+*Step Eight: Create a Figure*
+
+```{r}
+finalmodel <- logistf(EverInfected ~ Sex + BarnSection, data = data, 
+                      family = "binomial")
+summary(finalmodel)
+
+# Predict probabilities
+predicted_probs <- predict(finalmodel, type = "response")
+predicted_probs
+```
+
+``` {r}
+# Create a data frame with combinations of Sex and BarnSection
+sex_data <- expand.grid(
+  Sex = factor(c("colt", "filly", "gelding", "mare", "horse"), 
+               levels = c("colt", "filly", "gelding", "mare", "horse")),
+  BarnSection = factor(c("1", "2", "3", "4"), levels = c("1", "2", "3", "4"))
+)
+
+# View the first few rows of the expanded grid
+head(sex_data)
+
+# Predict probabilities for each combination of Sex and BarnSection
+sex_probs <- predict(finalmodel, newdata = sex_data, type = "response")
+
+# Add the predicted probabilities to the data frame
+sex_data$PredictedProb <- sex_probs
+
+# Create the box plot
+ggplot(sex_data, aes(x = Sex, y = PredictedProb, fill = Sex)) +
+
+  # Add whiskers first (so they are drawn behind the boxes)
+  stat_boxplot(geom = "errorbar", width = 0.3, linetype = "solid", color = "black") +
+
+  # Add the box plot on top
+  geom_boxplot(outlier.shape = 3, alpha = 1, coef = 1.5) +  
+
+  labs(
+    x = "Sex",
+    y = "Predicted Probability of Infection"
+  ) +
+  scale_fill_manual(values = rep("grey65", length(unique(sex_data$Sex)))) +
+  theme_classic() +
+  theme(
+    title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 12, face = "bold"),
+    axis.title.y = element_text(size = 12, face = "bold"),
+    axis.text = element_text(size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.margin = margin(10, 10, 10, 10),
+    legend.position = "none"
+  )
+
+```
+
+Way over pedicts horse - need to discuss this with Amy, should I disucss limitation?
+
+``` {r}
+# Create a data frame with combinations of Sex and BarnSection
+barn_data <- expand.grid(
+  Sex = factor(c("colt", "filly", "gelding", "mare", "horse"), 
+               levels = c("colt", "filly", "gelding", "mare", "horse")),
+  BarnSection = factor(c("1", "2", "3", "4"), levels = c("1", "2", "3", "4"))
+)
+
+# View the first few rows of the expanded grid
+head(barn_data)
+
+# Predict probabilities for each combination of Sex and BarnSection
+barn_probs <- predict(finalmodel, newdata = barn_data, type = "response")
+
+# Add the predicted probabilities to the data frame
+barn_data$PredictedProb <- barn_probs
+
+# Create the box plot
+ggplot(barn_data, aes(x = BarnSection, y = PredictedProb, fill = BarnSection)) +
+
+  # Draw whiskers first (so they are behind the boxes)
+  stat_boxplot(geom = "errorbar", width = 0.3, linetype = "solid", color = "black") +
+
+  # Draw the box plot on top with NO transparency
+  geom_boxplot(outlier.shape = 3, alpha = 1, coef = 1.5) +  
+
+  labs(
+    x = "Barn Section",  # X-axis title
+    y = "Predicted Probability of Infection"  # Y-axis title
+  ) +
+  scale_fill_manual(values = rep("grey65", length(unique(barn_data$BarnSection)))) +  # Set fill color manually
+  theme_classic() +  # Use a cleaner, professional theme
+  theme(
+    title = element_text(size = 16, face = "bold", hjust = 0.5),  # Title styling
+    axis.title.x = element_text(size = 12, face = "bold"),  # X-axis label styling 
+    axis.title.y = element_text(size = 12, face = "bold"),  # Y-axis label styling 
+    axis.text = element_text(size = 10),  # Axis text size
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate X-axis labels 
+    plot.margin = margin(10, 10, 10, 10),  # Adjust plot margins
+    legend.position = "none"  # Remove the legend
+  )
+
+```
+Same thing is happening with barn section 4, over predicted 
+
+Observed vs expected
+
+``` {r}
+# Create a new data frame with all possible combinations of Sex and BarnSection
+prediction_data <- expand.grid(
+  Sex = unique(data$Sex), 
+  BarnSection = unique(data$BarnSection)
+)
+
+# Predict the probabilities of infection for each combination of Sex and BarnSection
+prediction_data$PredictedProb <- predict(finalmodel, newdata = prediction_data, type = "response")
+
+# Count the number of individuals in each combination of Sex and BarnSection
+group_counts <- data %>%
+  group_by(Sex, BarnSection) %>%
+  summarise(Count = n(), .groups = 'drop')
+
+# Merge the predicted probabilities with the group counts
+prediction_data <- prediction_data %>%
+  left_join(group_counts, by = c("Sex", "BarnSection"))
+
+# Calculate the expected number of infected individuals
+prediction_data$ExpectedInfected <- prediction_data$PredictedProb * prediction_data$Count
+
+# Remove rows with NA or invalid values for ExpectedInfected
+prediction_data_clean <- prediction_data[!is.na(prediction_data$ExpectedInfected) & prediction_data$ExpectedInfected >= 0, ]
+
+# Create the box plot
+ggplot(prediction_data_clean, aes(x = BarnSection, y = ExpectedInfected, fill = BarnSection)) +
+
+  # Draw whiskers first so they are behind the boxes
+  stat_boxplot(geom = "errorbar", width = 0.3, linetype = "solid", color = "black") +
+
+  # Draw the box plot on top with NO transparency
+  geom_boxplot(outlier.shape = 3, alpha = 1, coef = 1.5) +  
+
+  labs(
+    x = "Barn Section",  # X-axis title
+    y = "Expected Number of Infected Individuals"  # Y-axis title
+  ) +
+  scale_fill_manual(values = rep("grey65", length(unique(prediction_data_clean$BarnSection)))) +  # Set fill color manually
+  theme_classic() +  # Use a cleaner, professional theme
+  theme(
+    title = element_text(size = 16, face = "bold", hjust = 0.5),  # Title styling
+    axis.title.x = element_text(size = 12, face = "bold"),  # X-axis label styling 
+    axis.title.y = element_text(size = 12, face = "bold"),  # Y-axis label styling 
+    axis.text = element_text(size = 10),  # Axis text size
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate X-axis labels 
+    plot.margin = margin(10, 10, 10, 10),  # Adjust plot margins
+    legend.position = "none"  # Remove the legend
+  )
+
+
+```
+
+``` {r}
+# Remove rows with NA or invalid values for ExpectedInfected
+prediction_data_clean <- prediction_data[!is.na(prediction_data$ExpectedInfected) & prediction_data$ExpectedInfected >= 0, ]
+
+# Plot the expected number of infected individuals by Sex using ggplot with a box plot
+ggplot(prediction_data_clean, aes(x = Sex, y = ExpectedInfected, fill = Sex)) +
+
+  # Draw whiskers first so they appear behind the box
+  stat_boxplot(geom = "errorbar", width = 0.3, linetype = "solid", color = "black") +
+
+  # Draw box plot on top with full opacity
+  geom_boxplot(outlier.shape = 3, alpha = 1, coef = 1.5) +  
+
+  labs(
+    x = "Sex",  # X-axis title
+    y = "Expected Number of Infected Individuals"  # Y-axis title
+  ) +
+  scale_fill_manual(values = rep("grey65", length(unique(prediction_data_clean$Sex)))) +  # Set fill color manually
+  theme_classic() +  # Cleaner theme
+  theme(
+    title = element_text(size = 16, face = "bold", hjust = 0.5),  # Title styling
+    axis.title.x = element_text(size = 12, face = "bold"),  # X-axis label styling 
+    axis.title.y = element_text(size = 12, face = "bold"),  # Y-axis label styling 
+    axis.text = element_text(size = 10),  # Axis text size
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate X-axis labels
+    plot.margin = margin(10, 10, 10, 10),  # Adjust plot margins
+    legend.position = "none"  # Remove the legend
+  )
+
+
+
+```
+*Step Nine: Draw a Conclusion*
+
+There was a highly significant positive relationship between barn section and the likelihood of a horse becoming infected, specifically in sections 2 and 4. Sex gelding has a moderately significant negative relationship with likelihood of infection. To better understand the odds of infection in relation to sex and barn section, we need to calculate the odds ratio's and confidence intervals. 
+
+``` {r}
+# Get and exponentiation the coefficients to calculate odds ratios
+odds_ratios <- exp(coef(finalmodel))
+
+# Display the odds ratios
+print(odds_ratios)
+
+# Calculate 95% confidence intervals for the odds ratios
+conf_int <- exp(confint(finalmodel))  # Exponentiation the confidence intervals
+print(conf_int)
+```
+
+*Step 10: Report Results*
+A multivariate logistic regression with Firth’s bias reduction method was conducted to examine the relationship between sex, vet, age, trainer, vaccination status, barn section and the risk of becoming infected. After conducting univariate logistic regression, it was determined that barn section, sex, sex2, and trainer were significant (p < 0.2).Backwards elimination was used to determined the best fit of the model. Ultimately, the best fitting model included barn section and sex as predictors of infection. The model indicated that barn section was highly statistically significant, specifically section 2 (p < a 0.01). We found that the odds of a horse becoming infected increased 12.45% (95%: CI 2.35%, 87.11%) in barn section 2. Additionally, sex gelding was highly statistically significant (p <0.01). We found that a horse had a significantly decreased odds of becoming infected 0.10% (95%: CI 0.01%, 0.51%) if they were female when accounting for vet and barn section. 
+
+I'm not sure how to properly report odds ratio^^
+
+
+
