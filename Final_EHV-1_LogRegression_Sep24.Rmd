@@ -552,7 +552,6 @@ ggplot(sex_data, aes(x = Sex, y = PredictedProb, fill = Sex)) +
 
 ```
 
-Way over pedicts horse - need to discuss this with Amy, should I disucss limitation?
 
 ``` {r}
 # Create a data frame with combinations of Sex and BarnSection
