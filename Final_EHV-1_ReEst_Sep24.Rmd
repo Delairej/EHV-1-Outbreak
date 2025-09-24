@@ -1,0 +1,148 @@
+---
+title: "Final EHV-1 R0 Code"
+author: "Julia Delaire - 0730478"
+date: "2025-03-08"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Method 6: Using the R0 package
+
+```{r}
+require(readr)
+require(deSolve)
+require(rmarkdown)
+require(ggplot2)
+require(bbmle)
+require(epimdr)
+require(R0)
+```
+
+``` {r}
+# Store the generation time estimates in vectors - do not have a SD so using 0.5 of mean 
+mGT1 <- generation.time("gamma", c(10.185, 5.0925))  # SD assumed to be 0.5 of Tg
+mGT2 <- generation.time("gamma", c(12.75, 6.375))  # SD assumed to be 0.5 of Tg
+mGT3 <- generation.time("gamma", c(2, 1))  # SD assumed to be 0.5 of Tg
+mGT4 <- generation.time("gamma", c(24.5, 12.25))  # SD assumed to be 0.5 of Tg
+```
+
+``` {r}
+# Setting up a matrix for the estimate.R() function to draw from more seamlessly
+# Define incidence values
+incidence_values <- c(3, 11, 1, 4, 0, 0, 2, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1)
+
+# Define dates as character row names (since matrices do not store Date types as row names)
+dates <- as.character(seq(as.Date("2020-05-16"), as.Date("2020-06-01"), by="day"))
+
+# Create the matrix
+IncidenceMatrix <- matrix(incidence_values, ncol = 1)
+
+# Assign row names (dates)
+rownames(IncidenceMatrix) <- dates
+
+# Print the matrix
+print(IncidenceMatrix)
+```
+``` {r}
+#R0 Estimates for mGT1
+estR0 <- estimate.R(IncidenceMatrix, GT = mGT1, 
+                    begin = 1, end = 6,  
+                    methods = c("EG", "ML", "AR"), 
+                    pop.size = 64, nsim = 100, 
+                    range = c(0.01, 1000))  # Adjust search range
+
+# Display results
+attributes(estR0)
+estR0
+plot(estR0)
+
+plot(estR0$estimates$EG)
+plot(estR0$estimates$ML)
+plot(estR0$estimates$AR)
+
+```
+
+``` {r}
+#R0 Estimates for mGT2
+estR02 <- estimate.R(IncidenceMatrix, GT = mGT2, 
+                    begin = 1, end = 6,  
+                    methods = c("EG", "ML", "TD", "AR", "SB"), 
+                    pop.size = 64, nsim = 100, 
+                    range = c(0.01, 1000))  # Adjust search range
+
+# Display results
+attributes(estR02)
+estR02
+```
+``` {r}
+#R0 Estimates for mGT3
+estR03 <- estimate.R(IncidenceMatrix, GT = mGT3, 
+                    begin = 1, end = 4,  
+                    methods = c("EG", "ML", "TD", "AR", "SB"), 
+                    pop.size = 64, nsim = 100, 
+                    range = c(0.01, 1000))  # Adjust search range
+
+# Display results
+attributes(estR03)
+estR03
+```
+
+``` {r}
+#R0 Estimates for mGT4
+estR04 <- estimate.R(IncidenceMatrix, GT = mGT4, 
+                    begin = 1, end = 4,  
+                    methods = c("EG", "ML", "TD", "AR", "SB"), 
+                    pop.size = 64, nsim = 100, 
+                    range = c(0.01, 100000))
+
+# Display results
+attributes(estR04)
+estR04
+```
+
+``` {r}
+# Model estimates and goodness of fit can be plotted
+plot(estR0)
+
+# Sensitivity analysis for the EG estimation; influence of begin/end dates
+s.a <- sensitivity.analysis(res=estR0$estimates$EG, begin=1:15, end=16:30, sa.type="time")
+
+# This sensitivity analysis can be plotted
+plot(s.a)
+```
+
+
+Full outbreak R0 
+``` {r}
+#R0 Estimates for mGT1
+estR0Full <- estimate.R(IncidenceMatrix, GT = mGT1, 
+                    begin = 1, end = 17,  
+                    methods = c("EG", "ML", "TD", "AR", "SB"), 
+                    pop.size = 64, nsim = 100, 
+                    range = c(0.01, 1000))  # Adjust search range
+estR0Full
+
+time_points <- as.numeric(as.Date(rownames(IncidenceMatrix)) - min(as.Date(rownames(IncidenceMatrix))))
+# Plot the incidence data
+plot(time_points, IncidenceMatrix[1:17, ], type="b", col="blue", pch=19, xlab="Time", ylab="Incidence")
+
+# Overlay the predicted values
+lines(time_points, estR0Full$estimates$EG$pred, type="l", col="red", lwd=2)
+
+# Add a legend
+legend("topright", 
+       legend = c("Incidence", "Predicted"),  # Legend labels
+       col = c("blue", "red"),                # Corresponding colors
+       pch = c(19, NA),                       # Point style (19 for points, NA for lines)
+       lwd = c(1, 2),                         # Line widths (for the predicted line)
+       bty = "n")                             # No box around the legend
+
+
+plot(estR0Full)
+plotfit(estR0Full)
+``` 
+
+
