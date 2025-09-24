@@ -703,9 +703,8 @@ print(conf_int)
 ```
 
 *Step 10: Report Results*
-A multivariate logistic regression with Firth’s bias reduction method was conducted to examine the relationship between sex, vet, age, trainer, vaccination status, barn section and the risk of becoming infected. After conducting univariate logistic regression, it was determined that barn section, sex, sex2, and trainer were significant (p < 0.2).Backwards elimination was used to determined the best fit of the model. Ultimately, the best fitting model included barn section and sex as predictors of infection. The model indicated that barn section was highly statistically significant, specifically section 2 (p < a 0.01). We found that the odds of a horse becoming infected increased 12.45% (95%: CI 2.35%, 87.11%) in barn section 2. Additionally, sex gelding was highly statistically significant (p <0.01). We found that a horse had a significantly decreased odds of becoming infected 0.10% (95%: CI 0.01%, 0.51%) if they were female when accounting for vet and barn section. 
+Univariate analysis indicated that barn section, sex, veterinarian, and trainer met the criteria for inclusion in the multivariate model (p < 0.2). In the final model, geldings had significantly lower odds of infection compared to the reference (OR = 0.10, 95% CI: 0.01–0.51, p = 0.005), while barn section 2 was significantly associated with higher odds of infection (OR = 12.45, 95% CI: 2.35–87.11, p = 0.002) (Table 3). Barn section 4 also showed increased odds (OR = 5.59, 95% CI: 0.98–38.29), but this was only borderline significant (p = 0.053). Other barn sections and sexes were not significant. Model fit was supported by the likelihood ratio test (p = 0.009) and the Wald test (p = 0.035).
 
-I'm not sure how to properly report odds ratio^^
 
 
 
