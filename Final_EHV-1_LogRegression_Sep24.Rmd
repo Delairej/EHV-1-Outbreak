@@ -1,6 +1,6 @@
 ---
 title: "Final_EHV1LogisticRegression_Dec4"
-author: "Julia Delaire - 0730478"
+author: "Julia Delaire"
 date: "2024-12-04"
 output: pdf_document
 ---
